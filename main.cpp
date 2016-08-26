@@ -8,6 +8,7 @@
 #include <vector>
 #include <string>
 #include <cstdlib>
+#include <iostream>
 
 class BrainFuckCompiler {
 public:
@@ -37,6 +38,60 @@ public:
 
     current_index_ptr = builder.CreateAlloca(builder.getInt32Ty(), nullptr, "pointer_ptr");
     builder.CreateStore(builder.getInt32(0), current_index_ptr);
+
+    // for [, ]
+    llvm::BasicBlock *whileBB;
+    llvm::BasicBlock *mergeBB;
+
+    for (auto op : code) {
+      std::cout << op << std::endl;
+      switch (op) {
+        case '>':
+          createIncIndex();
+          break;
+        case '<':
+          createDecIndex();
+          break;
+        case '+':
+          createIncValue();
+          break;
+        case '-':
+          createDecValue();
+          break;
+        case '.':
+          createOutput();
+          break;
+        case '[': {
+          whileBB = llvm::BasicBlock::Create(context, "while", mainFunc);
+
+          builder.CreateBr(whileBB);
+
+          builder.SetInsertPoint(whileBB);
+
+          auto valptr = createGetCurrent();
+          auto *cond = builder.CreateICmpNE(std::get<0>(valptr), builder.getInt8(0));
+          //auto *cond = builder.CreateICmpNE(builder.getInt32(0), builder.getInt32(0));
+          auto *thenBB = llvm::BasicBlock::Create(context, "then", mainFunc);
+          mergeBB = llvm::BasicBlock::Create(context, "ifcont");
+
+          builder.CreateCondBr(cond, thenBB, mergeBB);
+
+          // then
+          builder.SetInsertPoint(thenBB);
+
+          break;
+        }
+        case ']': {
+          // merge
+          builder.CreateBr(whileBB);
+
+          mainFunc->getBasicBlockList().push_back(mergeBB);
+          builder.SetInsertPoint(mergeBB);
+
+          break;
+        }
+      }
+    }
 
     builder.CreateRet(builder.getInt32(0));
   }
@@ -68,15 +123,16 @@ private:
   // >
   void createIncIndex() {
     auto *pointer = builder.CreateLoad(current_index_ptr);
-    builder.CreateAdd(pointer, builder.getInt32(1));
-    builder.CreateStore(pointer, current_index_ptr);
+    auto *n = builder.CreateAdd(pointer, builder.getInt32(1));
+    // TODO: pointerを0 ~ MEMORY_SIZE-1の範囲に収める
+    builder.CreateStore(n, current_index_ptr);
   }
 
   // <
   void createDecIndex() {
     auto *pointer = builder.CreateLoad(current_index_ptr);
-    builder.CreateSub(pointer, builder.getInt32(1));
-    builder.CreateStore(pointer, current_index_ptr);
+    auto *n = builder.CreateSub(pointer, builder.getInt32(1));
+    builder.CreateStore(n, current_index_ptr);
   }
 
   // +
