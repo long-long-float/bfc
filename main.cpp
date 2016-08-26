@@ -22,22 +22,47 @@ int main() {
   auto *entry = llvm::BasicBlock::Create(context, "entrypoint", mainFunc);
   builder.SetInsertPoint(entry);
 
+  // int putchar(int)
+  std::vector<llvm::Type*> putcharArgs;
+  putcharArgs.push_back(builder.getInt32Ty());
+  llvm::ArrayRef<llvm::Type*> argsRef(putcharArgs);
+  auto *putcharType = llvm::FunctionType::get(builder.getInt32Ty(), argsRef, false);
+  auto *putcharFunc = module->getOrInsertFunction("putchar", putcharType);
 
-  // make puts function
-  // int puts(char*)
-  std::vector<llvm::Type*> putsArgs;
-  putsArgs.push_back(builder.getInt8Ty()->getPointerTo());
-  llvm::ArrayRef<llvm::Type*> argsRef(putsArgs);
-  auto *putsType = llvm::FunctionType::get(builder.getInt32Ty(), argsRef, false);
-  auto *putsFunc = module->getOrInsertFunction("puts", putsType);
+  const int MEMORY_SIZE = 3000;
+  auto *memoryType = builder.getInt8Ty();//llvm::ArrayType::get(builder.getInt8Ty(), MEMORY_SIZE);
+  llvm::Value *memory = builder.CreateAlloca(memoryType, builder.getInt32(MEMORY_SIZE), "memory");
 
-  auto *helloWorld = builder.CreateGlobalStringPtr("Hello LLVM!\n");
+  auto *pointerType = builder.getInt32Ty();
+  llvm::Value *pointer_ptr = builder.CreateAlloca(pointerType, nullptr, "pointer_ptr");
+  builder.CreateStore(builder.getInt32(0), pointer_ptr);
 
-  builder.CreateCall(putsFunc, helloWorld);
+  // +
+  {
+    for (int i = 0; i < 65; i++) {
+      auto *pointer = builder.CreateLoad(pointer_ptr);
+      auto *inst = llvm::GetElementPtrInst::Create(memoryType, memory, pointer);
+      auto *ptr = builder.Insert(inst);
+      auto *c = builder.CreateLoad(ptr);
+      auto *n = builder.CreateAdd(c, builder.getInt8(1));
+      builder.CreateStore(n, ptr);
+    }
+  }
+
+  // .
+  {
+    auto *pointer = builder.CreateLoad(pointer_ptr);
+    auto *inst = llvm::GetElementPtrInst::Create(memoryType, memory, pointer);
+    auto *ptr = builder.Insert(inst);
+    auto *c = builder.CreateLoad(ptr);
+    builder.CreateCall(putcharFunc, builder.CreateSExt(c, builder.getInt32Ty()));
+  }
+
   builder.CreateRet(builder.getInt32(0));
 
   module->dump();
 
+  // generate bitcode
   std::error_code error_info;
   llvm::raw_fd_ostream os("a.bc", error_info, llvm::sys::fs::OpenFlags::F_None);
   llvm::WriteBitcodeToFile(module, os);
