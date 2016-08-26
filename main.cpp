@@ -9,6 +9,9 @@
 #include <string>
 #include <cstdlib>
 #include <iostream>
+#include <stack>
+#include <fstream>
+#include <iterator>
 
 class BrainFuckCompiler {
 public:
@@ -29,7 +32,7 @@ public:
     delete module;
   }
 
-  void compile(std::string code) {
+  void compile(const std::string &code) {
     auto *entry = llvm::BasicBlock::Create(context, "entrypoint", mainFunc);
     builder.SetInsertPoint(entry);
 
@@ -40,8 +43,9 @@ public:
     builder.CreateStore(builder.getInt32(0), current_index_ptr);
 
     // for [, ]
-    llvm::BasicBlock *whileBB;
-    llvm::BasicBlock *mergeBB;
+    // whileBB, mergeBB
+    using BBPair = std::pair<llvm::BasicBlock*, llvm::BasicBlock*>;
+    std::stack<BBPair> loop_stack;
 
     for (auto op : code) {
       std::cout << op << std::endl;
@@ -62,7 +66,7 @@ public:
           createOutput();
           break;
         case '[': {
-          whileBB = llvm::BasicBlock::Create(context, "while", mainFunc);
+          auto *whileBB = llvm::BasicBlock::Create(context, "while", mainFunc);
 
           builder.CreateBr(whileBB);
 
@@ -72,25 +76,37 @@ public:
           auto *cond = builder.CreateICmpNE(std::get<0>(valptr), builder.getInt8(0));
           //auto *cond = builder.CreateICmpNE(builder.getInt32(0), builder.getInt32(0));
           auto *thenBB = llvm::BasicBlock::Create(context, "then", mainFunc);
-          mergeBB = llvm::BasicBlock::Create(context, "ifcont");
+          auto *mergeBB = llvm::BasicBlock::Create(context, "ifcont");
 
           builder.CreateCondBr(cond, thenBB, mergeBB);
 
           // then
           builder.SetInsertPoint(thenBB);
 
+          loop_stack.push(BBPair(whileBB, mergeBB));
+
           break;
         }
         case ']': {
+          if (loop_stack.size() == 0) {
+            throw "no '[' corresponding ']'";
+          }
           // merge
-          builder.CreateBr(whileBB);
+          auto pair = loop_stack.top();
+          loop_stack.pop();
+          builder.CreateBr(std::get<0>(pair));
 
+          auto mergeBB = std::get<1>(pair);
           mainFunc->getBasicBlockList().push_back(mergeBB);
           builder.SetInsertPoint(mergeBB);
 
           break;
         }
       }
+    }
+
+    if (loop_stack.size() > 0) {
+      throw "no ']' corresponding '['";
     }
 
     builder.CreateRet(builder.getInt32(0));
@@ -158,9 +174,22 @@ private:
   }
 };
 
-int main() {
+int main(int argc, char **argv) {
+  if (argc != 2) {
+    std::cerr << "usage " << argv[0] << " FILE" << std::endl;
+    return 1;
+  }
+
+  std::fstream ifs(argv[1]);
+  if (ifs.fail()) {
+    std::cerr << "cannot read " << argv[1] << std::endl;
+    return 1;
+  }
+
+  std::string code = std::string(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+
   BrainFuckCompiler bfc;
-  bfc.compile("+++++++++[>++++++++>+++++++++++>+++++<<<-]>.>++.+++++++..+++.>-.------------.<++++++++.--------.+++.------.--------.>+.");
+  bfc.compile(code);
 
   bfc.getModule()->dump();
 
