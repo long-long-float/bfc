@@ -9,63 +9,109 @@
 #include <string>
 #include <cstdlib>
 
-int main() {
-  auto &context = llvm::getGlobalContext();
-  auto *module = new llvm::Module("top", context);
-  llvm::IRBuilder<> builder(context);
+class BrainFuckCompiler {
+public:
+  BrainFuckCompiler(): context(llvm::getGlobalContext()), module(new llvm::Module("top", context)), builder(llvm::IRBuilder<>(context)){
+    // int main()
+    auto *funcType = llvm::FunctionType::get(builder.getInt32Ty(), false);
+    mainFunc = llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, "main", module);
 
-  // make main function
-  // int main()
-  auto *funcType = llvm::FunctionType::get(builder.getInt32Ty(), false);
-  auto *mainFunc = llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, "main", module);
+    // int putchar(int)
+    std::vector<llvm::Type*> putcharArgs;
+    putcharArgs.push_back(builder.getInt32Ty());
+    llvm::ArrayRef<llvm::Type*> argsRef(putcharArgs);
+    auto *putcharType = llvm::FunctionType::get(builder.getInt32Ty(), argsRef, false);
+    putcharFunc = module->getOrInsertFunction("putchar", putcharType);
+  }
 
-  auto *entry = llvm::BasicBlock::Create(context, "entrypoint", mainFunc);
-  builder.SetInsertPoint(entry);
+  ~BrainFuckCompiler() {
+    delete module;
+  }
 
-  // int putchar(int)
-  std::vector<llvm::Type*> putcharArgs;
-  putcharArgs.push_back(builder.getInt32Ty());
-  llvm::ArrayRef<llvm::Type*> argsRef(putcharArgs);
-  auto *putcharType = llvm::FunctionType::get(builder.getInt32Ty(), argsRef, false);
-  auto *putcharFunc = module->getOrInsertFunction("putchar", putcharType);
+  void compile(std::string code) {
+    auto *entry = llvm::BasicBlock::Create(context, "entrypoint", mainFunc);
+    builder.SetInsertPoint(entry);
 
+    memory = builder.CreateAlloca(builder.getInt8Ty(), builder.getInt32(MEMORY_SIZE), "memory");
+    // TODO: initialize
+
+    current_index_ptr = builder.CreateAlloca(builder.getInt32Ty(), nullptr, "pointer_ptr");
+    builder.CreateStore(builder.getInt32(0), current_index_ptr);
+
+    builder.CreateRet(builder.getInt32(0));
+  }
+
+  llvm::Module *getModule() { return module; }
+
+private:
   const int MEMORY_SIZE = 3000;
-  auto *memoryType = builder.getInt8Ty();//llvm::ArrayType::get(builder.getInt8Ty(), MEMORY_SIZE);
-  llvm::Value *memory = builder.CreateAlloca(memoryType, builder.getInt32(MEMORY_SIZE), "memory");
 
-  auto *pointerType = builder.getInt32Ty();
-  llvm::Value *pointer_ptr = builder.CreateAlloca(pointerType, nullptr, "pointer_ptr");
-  builder.CreateStore(builder.getInt32(0), pointer_ptr);
+  llvm::LLVMContext &context;
+  llvm::Module *module;
+  llvm::IRBuilder<> builder;
+
+  llvm::Function *mainFunc;
+  llvm::Constant *putcharFunc;
+
+  llvm::Value *current_index_ptr;
+  llvm::Value *memory;
+
+  using value_pointer = std::tuple<llvm::Value*, llvm::Value*>;
+
+  value_pointer createGetCurrent() {
+    auto *pointer = builder.CreateLoad(current_index_ptr);
+    auto *inst = llvm::GetElementPtrInst::Create(builder.getInt8Ty(), memory, pointer);
+    auto *ptr = builder.Insert(inst);
+    return value_pointer(builder.CreateLoad(ptr), ptr);
+  }
+
+  // >
+  void createIncIndex() {
+    auto *pointer = builder.CreateLoad(current_index_ptr);
+    builder.CreateAdd(pointer, builder.getInt32(1));
+    builder.CreateStore(pointer, current_index_ptr);
+  }
+
+  // <
+  void createDecIndex() {
+    auto *pointer = builder.CreateLoad(current_index_ptr);
+    builder.CreateSub(pointer, builder.getInt32(1));
+    builder.CreateStore(pointer, current_index_ptr);
+  }
 
   // +
-  {
-    for (int i = 0; i < 65; i++) {
-      auto *pointer = builder.CreateLoad(pointer_ptr);
-      auto *inst = llvm::GetElementPtrInst::Create(memoryType, memory, pointer);
-      auto *ptr = builder.Insert(inst);
-      auto *c = builder.CreateLoad(ptr);
-      auto *n = builder.CreateAdd(c, builder.getInt8(1));
-      builder.CreateStore(n, ptr);
-    }
+  void createIncValue() {
+    auto valptr = createGetCurrent();
+    auto *c = std::get<0>(valptr);
+    auto *n = builder.CreateAdd(c, builder.getInt8(1));
+    builder.CreateStore(n, std::get<1>(valptr));
+  }
+
+  // -
+  void createDecValue() {
+    auto valptr = createGetCurrent();
+    auto *c = std::get<0>(valptr);
+    auto *n = builder.CreateSub(c, builder.getInt8(1));
+    builder.CreateStore(n, std::get<1>(valptr));
   }
 
   // .
-  {
-    auto *pointer = builder.CreateLoad(pointer_ptr);
-    auto *inst = llvm::GetElementPtrInst::Create(memoryType, memory, pointer);
-    auto *ptr = builder.Insert(inst);
-    auto *c = builder.CreateLoad(ptr);
+  void createOutput() {
+    auto *c = std::get<0>(createGetCurrent());
     builder.CreateCall(putcharFunc, builder.CreateSExt(c, builder.getInt32Ty()));
   }
+};
 
-  builder.CreateRet(builder.getInt32(0));
+int main() {
+  BrainFuckCompiler bfc;
+  bfc.compile("+++++++++[>++++++++>+++++++++++>+++++<<<-]>.>++.+++++++..+++.>-.------------.<++++++++.--------.+++.------.--------.>+.");
 
-  module->dump();
+  bfc.getModule()->dump();
 
   // generate bitcode
   std::error_code error_info;
   llvm::raw_fd_ostream os("a.bc", error_info, llvm::sys::fs::OpenFlags::F_None);
-  llvm::WriteBitcodeToFile(module, os);
+  llvm::WriteBitcodeToFile(bfc.getModule(), os);
 
   return 0;
 }
