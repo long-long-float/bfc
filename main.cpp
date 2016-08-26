@@ -54,7 +54,6 @@ public:
     std::stack<BBPair> loop_stack;
 
     for (auto op : code) {
-      std::cout << op << std::endl;
       switch (op) {
         case '>':
           createIncIndex();
@@ -83,13 +82,11 @@ public:
 
           auto valptr = createGetCurrent();
           auto *cond = builder.CreateICmpNE(std::get<0>(valptr), builder.getInt8(0));
-          //auto *cond = builder.CreateICmpNE(builder.getInt32(0), builder.getInt32(0));
           auto *thenBB = llvm::BasicBlock::Create(context, "then", mainFunc);
           auto *mergeBB = llvm::BasicBlock::Create(context, "ifcont");
 
           builder.CreateCondBr(cond, thenBB, mergeBB);
 
-          // then
           builder.SetInsertPoint(thenBB);
 
           loop_stack.push(BBPair(whileBB, mergeBB));
@@ -100,7 +97,7 @@ public:
           if (loop_stack.size() == 0) {
             throw "no '[' corresponding ']'";
           }
-          // merge
+
           auto pair = loop_stack.top();
           loop_stack.pop();
           builder.CreateBr(std::get<0>(pair));
