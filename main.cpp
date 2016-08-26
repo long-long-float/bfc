@@ -23,9 +23,15 @@ public:
     // int putchar(int)
     std::vector<llvm::Type*> putcharArgs;
     putcharArgs.push_back(builder.getInt32Ty());
-    llvm::ArrayRef<llvm::Type*> argsRef(putcharArgs);
-    auto *putcharType = llvm::FunctionType::get(builder.getInt32Ty(), argsRef, false);
+    llvm::ArrayRef<llvm::Type*> putcharArgsRef(putcharArgs);
+    auto *putcharType = llvm::FunctionType::get(builder.getInt32Ty(), putcharArgsRef, false);
     putcharFunc = module->getOrInsertFunction("putchar", putcharType);
+
+    // int getchar()
+    std::vector<llvm::Type*> getcharArgs;
+    llvm::ArrayRef<llvm::Type*> getcharArgsRef(getcharArgs);
+    auto *getcharType = llvm::FunctionType::get(builder.getInt32Ty(), getcharArgsRef, false);
+    getcharFunc = module->getOrInsertFunction("getchar", getcharType);
   }
 
   ~BrainFuckCompiler() {
@@ -64,6 +70,9 @@ public:
           break;
         case '.':
           createOutput();
+          break;
+        case ',':
+          createInput();
           break;
         case '[': {
           auto *whileBB = llvm::BasicBlock::Create(context, "while", mainFunc);
@@ -123,6 +132,7 @@ private:
 
   llvm::Function *mainFunc;
   llvm::Constant *putcharFunc;
+  llvm::Constant *getcharFunc;
 
   llvm::Value *current_index_ptr;
   llvm::Value *memory;
@@ -171,6 +181,14 @@ private:
   void createOutput() {
     auto *c = std::get<0>(createGetCurrent());
     builder.CreateCall(putcharFunc, builder.CreateSExt(c, builder.getInt32Ty()));
+  }
+
+  // ,
+  void createInput() {
+    auto *val = builder.CreateCall(getcharFunc, llvm::ArrayRef<llvm::Value*>());
+
+    auto valptr = createGetCurrent();
+    builder.CreateStore(builder.CreateTrunc(val, builder.getInt8Ty()), std::get<1>(valptr));
   }
 };
 
