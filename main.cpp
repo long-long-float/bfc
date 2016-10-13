@@ -53,7 +53,8 @@ public:
     using BBPair = std::pair<llvm::BasicBlock*, llvm::BasicBlock*>;
     std::stack<BBPair> loop_stack;
 
-    for (auto op : code) {
+    for (size_t i = 0; i < code.size(); i++) {
+      auto op = code[i];
       switch (op) {
         case '>':
           createIncIndex();
@@ -61,12 +62,24 @@ public:
         case '<':
           createDecIndex();
           break;
-        case '+':
-          createIncValue();
+        case '+': {
+          size_t pcount = 0;
+          while (i + pcount < code.size() && code[i + pcount] == '+') {
+            pcount++;
+          }
+          createIncValue(pcount);
+          i += pcount - 1;
           break;
-        case '-':
-          createDecValue();
+        }
+        case '-': {
+          size_t mcount = 0;
+          while (i + mcount < code.size() && code[i + mcount] == '-') {
+            mcount++;
+          }
+          createDecValue(mcount);
+          i += mcount - 1;
           break;
+        }
         case '.':
           createOutput();
           break;
@@ -159,18 +172,18 @@ private:
   }
 
   // +
-  void createIncValue() {
+  void createIncValue(size_t count) {
     auto valptr = createGetCurrent();
     auto *c = std::get<0>(valptr);
-    auto *n = builder.CreateAdd(c, builder.getInt8(1));
+    auto *n = builder.CreateAdd(c, builder.getInt8(count));
     builder.CreateStore(n, std::get<1>(valptr));
   }
 
   // -
-  void createDecValue() {
+  void createDecValue(size_t count) {
     auto valptr = createGetCurrent();
     auto *c = std::get<0>(valptr);
-    auto *n = builder.CreateSub(c, builder.getInt8(1));
+    auto *n = builder.CreateSub(c, builder.getInt8(count));
     builder.CreateStore(n, std::get<1>(valptr));
   }
 
