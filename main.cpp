@@ -160,8 +160,8 @@ private:
   void createIncIndex() {
     auto *pointer = builder.CreateLoad(current_index_ptr);
     auto *n = builder.CreateAdd(pointer, builder.getInt32(1));
-    // TODO: pointerを0 ~ MEMORY_SIZE-1の範囲に収める
-    builder.CreateStore(n, current_index_ptr);
+    auto *n2 = builder.CreateSRem(n, builder.getInt32(MEMORY_SIZE));
+    builder.CreateStore(n2, current_index_ptr);
   }
 
   // <
